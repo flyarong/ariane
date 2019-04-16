@@ -111,9 +111,6 @@ module commit_stage #(
         commit_ld_valid_o = commit_instr_i[0].fu == LOAD;
         // we will not commit the instruction if we took an exception
         // and we do not commit the instruction if we requested a halt
-        // furthermore if the debugger is requesting to debug do not commit this instruction if we are not yet in debug mode
-        // also check that there is no atomic memory operation committing, right now this is the only operation
-        // which will take longer than one cycle to commit
         if (commit_instr_i[0].valid && !commit_instr_i[0].ex.valid && !halt_i) begin
             // we can definitely write the register file
             // if the instruction is not committing anything the destination
@@ -146,21 +143,24 @@ module commit_stage #(
             // ---------
             // CSR Logic
             // ---------
-            // check whether the instruction we retire was a CSR instruction
-            // interrupts are never taken on CSR instructions
+            // check whether the instruction we retire was a CSR instruction and it did not
+            // throw an exception
             if (commit_instr_i[0].fu == CSR) begin
                 // write the CSR file
-                commit_csr_o = 1'b1;
-                wdata_o[0]   = csr_rdata_i;
                 csr_op_o     = commit_instr_i[0].op;
                 csr_wdata_o  = commit_instr_i[0].result;
-                commit_ack_o[0] = 1'b1;
+                if (!csr_exception_i.valid) begin
+                  commit_csr_o = 1'b1;
+                  wdata_o[0]   = csr_rdata_i;
+                  commit_ack_o[0] = 1'b1;
+                end else begin
+                  commit_ack_o[0] = 1'b0;
+                  we_gpr_o[0] = 1'b0;
+                end
             end
             // ------------------
             // SFENCE.VMA Logic
             // ------------------
-            // sfence.vma is idempotent so we can safely re-execute it after returning
-            // from interrupt service routine
             // check if this instruction was a SFENCE_VMA
             if (commit_instr_i[0].op == SFENCE_VMA) begin
                 // no store pending so we can flush the TLBs and pipeline
